@@ -4,7 +4,8 @@ using UnityEngine;
 using UnityEngine.AI; // AI, 내비게이션 시스템 관련 코드를 가져오기
 
 // 좀비 AI 구현
-public class Zombie : LivingEntity {
+public class Zombie : LivingEntity
+{
     public LayerMask whatIsTarget; // 공격 대상 레이어
 
     private LivingEntity targetEntity; // 추적할 대상
@@ -39,7 +40,8 @@ public class Zombie : LivingEntity {
         }
     }
 
-    private void Awake() {
+    private void Awake()
+    {
         // 게임 오브젝트로부터 사용할 컴포넌트들을 가져오기
         navMeshAgent = GetComponent<NavMeshAgent>();
         zombieAnimator = GetComponent<Animator>();
@@ -50,10 +52,24 @@ public class Zombie : LivingEntity {
         zombieRenderer = GetComponentInChildren<Renderer>();
     }
 
+    // 19.7 절에서 다룰 '좀비 생성기 포팅'에서 다룰 좀비 생성기는 좀비를 모든 클라이언트에 
+    // 동일하게 생성하고, 생성한 좀비의 능력치를 설정합니다.
+    // 생성한 좀비가 모든 클라이언트에서 동일한 능력치를 가지게 하려면 모든 클라이언트에서 
+    // Setup() 메서드가 실행되어야 합니다. 따라서  Setup() 메서드는 [PunRPC] attribute로 선언되어야 합니다.
+    // 본래 Zombie 스크립트의 기존 Setup() 메서드에서는 ZombieData 타입을 직접 받도록 되어 있습니다. 
+    // ZombieData는 스크립터블 오브젝트 에셋으로서 좀비에 필요한 데이터 외에도 우니티 오브젝트로서 필수적인 
+    // 다른 데이터도 포함되어 있습니다. 즉, ZombieData 에셋을 직접 다른 클라이언트에 전송하면 실질적인 데이터에 비해 
+    // 보내야 할 패킷 크깃가 커집니다. 따라서 ZombieData를 통해 전달받던 체력, 공격력, 피부색을 
+    // Setup()의 입력 파라메터로 직접 받도록 했습니다. 
+    // 또한 19.2.4절 'LivingEntity 스크립트’에서 OnDamage() 메서드에 이미 [PunRPC] 속성을 선언했지만，
+    // Zombie 스크립트에서 OnDamage()를 오버라이드하면서 [PunRPC] 속성이 해지되었기 때문에 
+    // Zombie의 OnDamage() 메서드에서 [PunRPC] 속성을 다시 선언했습니다.
+
     // 좀비 AI의 초기 스펙을 결정하는 셋업 메서드
     [PunRPC]
     public void Setup(float newHealth, float newDamage,
-        float newSpeed, Color skinColor) {
+        float newSpeed, Color skinColor)
+    {
         // 체력 설정
         startingHealth = newHealth;
         health = newHealth;
@@ -64,8 +80,24 @@ public class Zombie : LivingEntity {
         // 렌더러가 사용중인 머테리얼의 컬러를 변경, 외형 색이 변함
         zombieRenderer.material.color = skinColor;
     }
-    
-    private void Start() {
+
+
+    // Zombie의 Start() 메서드는 UpdatePath() 코루틴을 실행하여 Zombie 게임 오브젝트에 추가된 내비메시 에이전트가 
+    // 적을 찾고 경로를 계산하여. 이동하게 합니다.
+    // 만약 모든 클라이언트에서 내비메시 에이전트가 독자적으로 동작하면 내비메시 에이전트가 계산한 경로가 클라이언트마다 
+    // 조금씩 다를 수 있습니다. 즉，Zombie AI가 클라이언트마다 서로 다른 경로로 이동할 수 있습니다.
+    // 따라서 Zombie 게임 오브젝트의 내비메시 에이전트의 경로 계산과 이동은 호스트에서만 실행 합니다. 
+    // 변경된 Start() 메서드는 최상단에 다음과 같은 if 문을 추가하여 현재 코드를 실행 중인 클라이언트가 
+    // 호스트가 아닌 경우에는 경로 계산을 시작하는 UpdatePath() 코루틴을 실행하지 못하도록 막습니다.
+    // 즉，호스트가 아닌 다른 클라이언트들의 Zombie 게임 오브젝트는 경로를 스스로 계산하지 않고, 
+    // 호스트의 Zombie 게임 요브젝트의 위치를 동기화해서 이동합니다.
+    // Zombie 게임 오브젝트는 호스트에서 먼저 생성되고，다른 클라이언트에서 복제 생성되기 때문에 
+    // 호스트의 Zombie 게임 오브젝트는 로컬이며，다른 클라이언트의 Zombie 게임 오브젝트는 리모트입니다.
+    // 따라서 호스트의 Zombie 게임 오브젝트 위치를 다른 클라이언트의 Zombie 게임 오브젝트가 받아 적용하는 과정은 
+    // Photon View 컴포넌트에 의해 자동으로 이루어집니다.
+
+    private void Start()
+    {
         // 호스트가 아니라면 AI의 추적 루틴을 실행하지 않음
         if (!PhotonNetwork.IsMasterClient)
         {
@@ -76,7 +108,12 @@ public class Zombie : LivingEntity {
         StartCoroutine(UpdatePath());
     }
 
-    private void Update() {
+    // 변경된 Update() 메서드 또한 if 문을 추가하여 클라이언트가 호스트가 아닌 경우에는 애니 메이션 파라미터를 
+    // 갱신하는 처리를 실행하지 못하게 합니다. 물론 호스트에서만 좀비의 애니메이터 파라미터를 직접 갱신해도 
+    // Photon Animator View 컴포넌트에 의해 동기화되어 클라이언트에서도 같은 애니메이션이 재생되기 때문에 문제없습니다 .
+
+    private void Update()
+    {
         // 호스트가 아니라면 애니메이션의 파라미터를 직접 갱신하지 않음
         // 호스트가 파라미터를 갱신하면 클라이언트들에게 자동으로 전달되기 때문.
         if (!PhotonNetwork.IsMasterClient)
@@ -89,7 +126,8 @@ public class Zombie : LivingEntity {
     }
 
     // 주기적으로 추적할 대상의 위치를 찾아 경로를 갱신
-    private IEnumerator UpdatePath() {
+    private IEnumerator UpdatePath()
+    {
         // 살아있는 동안 무한 루프
         while (!dead)
         {
@@ -135,7 +173,8 @@ public class Zombie : LivingEntity {
 
     // 데미지를 입었을때 실행할 처리
     [PunRPC]
-    public override void OnDamage(float damage, Vector3 hitPoint, Vector3 hitNormal) {
+    public override void OnDamage(float damage, Vector3 hitPoint, Vector3 hitNormal)
+    {
         // 아직 사망하지 않은 경우에만 피격 효과 재생
         if (!dead)
         {
@@ -153,7 +192,8 @@ public class Zombie : LivingEntity {
     }
 
     // 사망 처리
-    public override void Die() {
+    public override void Die()
+    {
         // LivingEntity의 Die()를 실행하여 기본 사망 처리 실행
         base.Die();
 
@@ -175,7 +215,15 @@ public class Zombie : LivingEntity {
         zombieAudioPlayer.PlayOneShot(deathSound);
     }
 
-    private void OnTriggerStay(Collider other) {
+    // Zombie 스크립트의 OnTriggerStay() 메서드는 트리거 콜라이더를 사용해 감지된 상대방 게임 오브젝트가 추적 대상인 경우 
+    // 해당 게임 오브젝트를 공격하는 처리를 구현합니다. 변경된 OnTriggerStay() 메서드는 최상단에 if 문을 추가하여 
+    // 클라이언트가 호스트가 아닌 경우에는 공격을 실행하지 못하게 막습니다. 즉，Zombie의 공격은 호스트에서만 이루어집니다.
+    // 단，공격을 받는 LivingEntity 타입은 19.2.4절 ‘LivingEntity 스크립트’에서 살펴봤듯이 공격당한 결과를 
+    // 다른 클라이언트에 RPC로 전파합니다. 따라서 좀비가 플레이어 캐릭터를 공격한 결과는 호스트가 아닌 다른 클라이언트에도 
+    // 무사히 적용됩니다.
+
+    private void OnTriggerStay(Collider other)
+    {
         // 호스트가 아니라면 공격 실행 불가
         if (!PhotonNetwork.IsMasterClient)
         {
