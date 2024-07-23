@@ -1,6 +1,26 @@
 ﻿using Photon.Pun;
 using UnityEngine;
 
+/* 
+
+네트워크 게임에서 리모트 플레이어 캐릭터는 네트워크 너머의 로컬 플레이어 캐릭터로부터 위치, 회전, 애니메이터 
+파라미터값을 받아 자신의 값으로 사용합니다.
+따라서 기존 PlayerMovement 스크립트의 이동，회전，애니메이션 처리는 로컬 플레이어 캐릭터인 경우에만 
+실행되도록 재구성해야 합니다. 
+
+리모트 플레이어 캐릭터는 동기화를 통해 위치，회전，애니메이션 파라미터를 로컬 플레이어 캐릭터로부터 
+자동으로 받아 사용하기 때문입니다. 
+
+새로운 PlayerMovement 스크립트의 주요 변경 사항은 다음과 같습니다.
+    • MonoBehaviour 대신 MonoBehaviourPun 사용
+    • FixedUpdate() 메서드 상단에 로컬 여부를 검사하는 if 문 추가
+
+PlayerMovement 스크립트는 FixedUpdate () 메서드의 최상단에 다음과 같은 if 문을 추가하여 
+현재 게임 요브젝트가 로컬 게임 오브젝트인 경우에만 이동，회전，애니메이션 파라미터 갱신 처리를 
+실행하도록 구현했습니다.
+
+*/
+
 // 플레이어 캐릭터를 사용자 입력에 따라 움직이는 스크립트
 public class PlayerMovement : MonoBehaviourPun
 {
