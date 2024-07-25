@@ -2,6 +2,39 @@
 using Photon.Pun;
 using UnityEngine;
 
+/*
+
+• 기존 기능 : 사격 실행，사격 이펙트 재생, 재장전 실행，탄알 관리
+• 변경된 기능 : 실제 사격 처리 부분을 호스트에서만 실행, 상태 동기화
+
+새로운 Gun 스크립트에는 다음과 같은 주요 변경 사항이 적용되었습니다.
+    • MonoBehaviourPun 사용
+    • IPunObservable 인터페이스 상속, OnPhotonSerializeView() 메서드 구현 • 새로운 RPC 메서드 AddAmmo () 추가
+    • Shot ()의 사격 처리 부분을 새로운 RPC 메서드 ShotProcessOnServer ()로 옮김 
+    • ShotEffect ()를 새로운 RPC 메서드 ShotEffectPocessOnClients ()로 감쌈
+
+IPunObservable 인터페이스와 OnPhotonSerializeView() 메서드
+======================================================
+Photon View 컴포넌트를 사용해 동기화를 구현할모든 컴포넌트(스크립트)는 IPunObservable 인터페이스를 상속하고 OnPhotonSerializeView () 메서드를 
+구현해야 합니다. OnPhotonSeria lizeView () 메서드는 Photon View 컴포넌트를 사용해 로컬과 리모트 사이에서 어떤 값을 어떻게 주고받을지 결정합니다.
+
+IPunObservable 인터페이스를 상속한 컴포넌트는 Photon View 컴포넌트의 Observed Components에 등록되어 로컬과 리모트에서 동기화될 수 있습니다.
+Gun 스크립트에 추가된 OnPhotonSerializeView() 메서드를 살펴봅시다. 해당 메서드는Photon View 컴포넌트에 의해 자동으로 실행됩니다.
+OnPhotonSerializeView() 메서드는 ammoRemain，magAmmo, state 값을 로컬에서 리모트 방향으로 동기화합니다. 
+남은 전체 탄알，탄창의 탄알，총의 상태가 클라이언트 사이에서 동기화됩니다.
+
+OnPhotonSerializeView () 메서드의 입력으로 들어오는 stream 은 현재 클라이언트에서 다른 클라이언트로 보낼 값을 쓰거나，
+다른 클라이언트가 보내온 값을 읽을 때 사용할 스트림 형의 데이터 컨테이너입니다.
+
+stream.IsWriting은 현재 스트림이 쓰기 모드인지 반환합니다. 현재 게임 오브젝트가 로컬 게임 오브젝트면 쓰기 모드가 되어 true, 
+리모트 게임 요브젝트면 읽기 모드가 되어 false가 반환됩니다. 즉，클라이언트 A와 B가 있다고 가정했을 때 A에서 플레이어 캐릭터 a가 들고 있는 
+총의 Gun 스크립트에서는 stream.IsWriting이 true입니다. 따라서 SendNext () 메서드로 스트림에 값을 삽입하여 네트워크를 통해 전송합니다.
+클라이언트 B에서의 플레이어 캐릭터 a가 들고 있는 총의 Gun 스크립트에서는 stream.IsWriting이 false입니다. 
+따라서 스트림으로 들어온 값을 ReceiveNext () 메서드로 가져옵니다. 이렇게 클라이언트 B의 a의 총은 클라이언트 A의 a의 총이 가지고 있는 값으로 동기화 됩니다.
+
+
+*/
+
 // 총을 구현한다
 public class Gun : MonoBehaviourPun, IPunObservable
 {
@@ -71,8 +104,9 @@ public class Gun : MonoBehaviourPun, IPunObservable
     // 클라이언트 A의 리모트 플레이어 캐릭터 b도 탄알 아이템을 먹게 된다.
     // PlayerHealth 스크립트에서 확인해 보았듯이, 클라이언트 B의 플레이어 캐릭터 b는 아이템을 사용할 수 없습니다.
     // 실제 탄알 아이템의 사용은 호스트 클라이언트인 A의 리모트 플레이어 캐릭터 b에서 실행됩니다. 
-    // 아이템의 사용은 호스트 클라이언트 A에서만 실행됩니다.
+    // 아이템의 사용은 호스트 클라이언트 A에서만 실행됩니다: PlayerHealth.cs onTriggerEnter(), p.853 참조
     // 따라서 호스트 클라이언트 A는 모든 클라이언트 A와 B에서 b의 탄알이 증가하도록 RPC를 통해서 AddAmmo()를 실행할 겁니다.
+
     // 남은 탄약을 추가하는 메서드
     [PunRPC]
     public void AddAmmo(int ammo)
@@ -126,8 +160,9 @@ public class Gun : MonoBehaviourPun, IPunObservable
     // Shot()과 ShotEffect()에서 실제 발사 처리는 호스트에 맡깁니다. 
     // 클라이언트 A, B, C가 존재하며, A가 호스트라고 가정하자. 
     // 1. 클라이언트 B의 로컬 플레이어 b의 총에서 Shot() 메서드를 실행
-    // 2. Shot()에서 phtonView.RPC("ShotProcessOnServer", Rpc.MasterClient); 실행
+    // 2. Shot()에서 photonView.RPC("ShotProcessOnServer", Rpc.MasterClient); 실행
     // 3. 실제 사격 처리를 하는 ShotProcessOnServer()는 호스트 클라이언트 A에서만 실행
+    // 4. 발사 이펙트 재생, 이펙트 재생은 모든 클라이언트들에서 실행
     private void Shot()
     {
         // 실제 발사 처리는 호스트에게 대리

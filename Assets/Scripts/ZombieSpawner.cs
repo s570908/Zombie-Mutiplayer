@@ -49,7 +49,7 @@ zombie.photonView.RPC("Setup", RpcTarget.All, zombieData.health, zombieData.dama
 
 좀비 사망 이벤트
 ============
-CreateZombie() 메서드 마지막 부분에는 Zombie의 onDeath 이벤트에 생성한 좀비이 사망할 경우 실행될 
+CreateZombie() 메서드 마지막 부분에는 Zombie의 onDeath 이벤트에 생성한 좀비가 사망할 경우 실행될 
 메서드를 등록했습니다.
 
 CreateZombie() 메서드가 호스트에서만 실행되므로 onDeath 이벤트에 이벤트 리스너를 등록하는 위 코드는 
@@ -217,15 +217,38 @@ public class ZombieSpawner : MonoBehaviourPun, IPunObservable
         // 생성한 좀비를 셋업하기 위해 Zombie 컴포넌트를 가져옴
         Zombie zombie = createdZombie.GetComponent<Zombie>();
 
+        // 호스트뿐만 아니라 모든 클라이언트에서 동시에 생성한 좀비의 Setup () 메서드를 원격 실행합니다.
+        // 그러면 해당 좀비의 능력치와 피부색이 모든 클라이언트에서 같아질 겁니다.
+
         // 생성한 좀비의 능력치 설정
         zombie.photonView.RPC("Setup", RpcTarget.All, zombieData.health, zombieData.damage, zombieData.speed, zombieData.skinColor);
+
+        // 호스트 클라이언트에서만 수행된다. 다른 클라이언트에서는 수행되지 않는다. 
+        // 호스트 클라이언트는 좀비의 총 숫자를 zombies.Count로 알 수 있다. 그러나 다른  클라이언트는 그 숫자를 알 수가 없다. 
+        // 호스트 클라이언트는 다른 모든 클라이언트에게 zombies.Count를 송부하고 다른 모든 클라리언트는 이것을 zombiesCount 변수에 받아서 담는다.
+        // Zombie Spawner 게임 오브젝트를 로컬로 가지고 있는 호스트에서는 zombies.Count를 남은 좀비 수를 파악하는 데 사용 가능하지만, 
+        // 다른 클라이언트에서는 zombieCount를 대신 사용해야 합니다.
+        // 참조: OnPhotonSerializeView()
 
         // 생성된 좀비를 리스트에 추가
         zombies.Add(zombie);
 
+        // onDeath 이벤트에 이벤트 리스너를 등록하는 아래의 코드는 호스트에서만 실행됩니다. 
+        // 따라서 좀비 사망 시 사망한 좀비를 리스트에서 제거하고，사망한 좀비를 10초 뒤에 파괴하며，게임 매니저에 100점 을 추가하는 처리는 
+        // 호스트에서만 실행됩니다.
+
+        // 여기서 좀비 리스트에서 사망한 좀비를 제거하고 게임 매니저에 점수를 추가하는 처리는 호스트에서만 실행해도 됩니다. 
+        // 남은 좀비 수와 현재 게임 점수는 호스트에서 변경되었을 때 자동으로 다른 클라이언트에도 반영되도록 구현되었기 때문입니다.
+        // 참조: OnPhotonSerializeView()
+
         // 좀비의 onDeath 이벤트에 익명 메서드 등록
         // 사망한 좀비를 리스트에서 제거
         zombie.onDeath += () => zombies.Remove(zombie);
+
+        // 하지만 좀비가 파괴되는 처리는 다른 클라이언트에 자동 반영되지 않습니다. 따라서 Destroy () 메서드를 PhotonNetwork.Destroy () 메서드로 대체하여 
+        // 호스트에서 좀비가 파괴될 때 다른 모든 클라이언트에서도 좀비가 파괴되게 해야 합니다.
+        // 참조: DestroyAfter(zombie.gameObject, 10f)의 PhotonNetwork.Destroy(target)
+
         // 사망한 좀비를 10 초 뒤에 파괴
         zombie.onDeath += () => StartCoroutine(DestroyAfter(zombie.gameObject, 10f));
         // 좀비 사망시 점수 상승
